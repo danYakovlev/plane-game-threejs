@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <script type="text/javascript" src="./three.min.js"></script>    
+        <link rel="stylesheet" type="text/css" href="style.css">
+    </head>
+    <body>
+        <div id="stats">
+            <div id="speed"></div>
+        </div>
+        <div id="startBtn" onClick="startGame()">
+            START
+        </div>
+        <div id="world" />
+
+        <script>
+            var scene, camera, renderer, container, HEIGHT, WIDTH, startBtn = document.getElementById('startBtn');
+
+            // speed - speed property
+            // enemyNames - array of enemy names, for actions on objects
+            var score = 0, speed = 200, enemyNames = [], treeNames=[], direction = '', stoped = true, timer, enemyRespawnTimer;
+
+            var scoreElement = document.getElementById('score');
+            var speedElement = document.getElementById('speed');
+
+            function setTimer() {
+                timer = new THREE.Clock();
+                timer.start();
+
+                enemyRespawnTimer = new THREE.Clock();
+                enemyRespawnTimer.start();
+            }
+
+            function updateStats() {
+                speedElement.innerText = speed;
+            }
+            
+            var Colors = {
+                red: 0xf25346,
+                white: 0xd8d0d1,
+                brown: 0x59332e,
+                pink: 0xF5986E,
+                brownDark: 0x23190f,
+                blue: 0x68c3c0,
+                orange: 'rgb(251, 140, 0)',
+                lightGreen: 'rgb(139, 195, 74)',
+                green: 'rgb(175, 180, 43)'
+            };
+
+            
+            function createScene() {
+
+                HEIGHT = window.innerHeight;
+                WIDTH = window.innerWidth;
+                
+                scene = new THREE.Scene();
+
+                camera = new THREE.OrthographicCamera( WIDTH / -4, WIDTH / 4, HEIGHT / 4, HEIGHT / - 4, -200, 2000 );
+                
+                // setup position and options for camera         
+                camera.position.z = 50;
+                camera.position.x = 0;
+                camera.position.y = 130;
+                camera.rotation.z = -0.8;
+                camera.rotation.y = -0.6;
+                camera.rotation.x = -0.9;
+
+                renderer = new THREE.WebGLRenderer({
+                    alpha: true,
+                    antialias: true,
+                });
+                renderer.setSize( WIDTH, HEIGHT );
+                renderer.shadowMap.enabled = true;
+
+                // add into container
+                container = document.getElementById('world');
+                container.appendChild(renderer.domElement);
+
+                // Add resize fix
+                window.addEventListener('resize', onWindowResize, false);
+            }
+
+            // OnWindowResize Method
+            function onWindowResize() {
+                WIDTH = window.innerWidth;
+                HEIGHT = window.innerHeight;
+
+                renderer.setSize(WIDTH, HEIGHT);
+                
+                camera.left = WIDTH / -4;
+                camera.right = WIDTH / 4;
+                camera.top = HEIGHT / 4;
+                camera.bottom = HEIGHT / -4;
+                camera.updateProjectionMatrix();
+            }
+
+            var hemisphereLight, directionalLight;
+
+            // light sources init
+            function createLights() {
+
+                hemisphereLight = new THREE.HemisphereLight(0xaaaaaa,0x000000, .9);
+
+                directionalLight = new THREE.DirectionalLight(0xffffff, .9);
+
+                directionalLight.position.set(150,  350, 350);
+
+                directionalLight.castShadow = true;
+
+                directionalLight.shadow.camera.left = -400;
+                directionalLight.shadow.camera.right = 400;
+                directionalLight.shadow.camera.top = 400;
+                directionalLight.shadow.camera.bottom = -400;
+                directionalLight.shadow.camera.near = 1;
+                directionalLight.shadow.camera.far = 1000;
+
+                directionalLight.shadow.mapSize.width = 2048;
+	            directionalLight.shadow.mapSize.height = 2048;
+
+                scene.add(hemisphereLight);  
+	            scene.add(directionalLight);
+            }
+
+            function resetAll() {                
+                for(var i = 0; i < enemyNames.length; i++) {
+                    var enemyObj = scene.getObjectByName(enemyNames[i]);
+                    
+                    scene.remove(enemyObj);
+                    enemyNames.splice(i, 1);
+                }                
+                for(var i = 0; i < treeNames.length; i++) {
+                    var treeObj = scene.getObjectByName(treeNames[i]);
+                    
+                    scene.remove(treeObj);
+                    treeNames.splice(i, 1);
+                }
+            }
+
+            // create ground
+            function createGround() {
+                var geometry = new THREE.BoxGeometry(1500,1,1500);
+                var mat = new THREE.MeshPhongMaterial({
+                    color: Colors.green,
+                    shading:THREE.FlatShading,
+                    shininess: 0
+                })
+                var ground = new THREE.Mesh(geometry, mat);
+                
+                // shadows on ground
+                //ground.receiveShadow = true;
+                scene.add(ground);
+            }
+
+            // create tree
+            var Tree = function() {
+                this.mesh = new THREE.Object3D();
+
+                var trunk = new THREE.BoxGeometry(10,25,10);
+                var trunkMat = new THREE.MeshPhongMaterial({
+                    color: Colors.orange,
+                    shading:THREE.FlatShading
+                })
+
+                var branch = new THREE.ConeGeometry(20, 30, 4);
+                var branchMat = new THREE.MeshPhongMaterial({
+                    color: Colors.lightGreen,
+                    shading:THREE.FlatShading
+                })
+
+                var k = new THREE.Mesh(trunk, trunkMat);
+                var m1 = new THREE.Mesh(branch, branchMat);
+                m1.position.y = 15;
+                var m2 = new THREE.Mesh(branch, branchMat);
+                m2.scale.set(.80,.80,.80)
+                m2.position.y = 30;
+                
+                k.castShadow = true;                
+                k.receiveShadow = true;
+                m1.castShadow = true;
+                m1.receiveShadow = true;
+                m2.castShadow = true;
+                m2.receiveShadow = true;
+
+                this.mesh.add(k);
+                this.mesh.add(m1);
+                this.mesh.add(m2);
+
+                this.mesh.position.y = 15;
+                this.mesh.scale.set(1,1,1);
+            }
+
+            var AirPlane = function() {
+	
+                this.mesh = new THREE.Object3D();
+                
+                // Create the cabin
+                var geomCockpit = new THREE.BoxGeometry(60,50,50,1,1,1);
+                var matCockpit = new THREE.MeshPhongMaterial({color:Colors.red, shading:THREE.FlatShading});
+                var cockpit = new THREE.Mesh(geomCockpit, matCockpit);
+                cockpit.castShadow = true;
+                cockpit.receiveShadow = true;
+                this.mesh.add(cockpit);
+                
+                // Create the engine
+                var geomEngine = new THREE.BoxGeometry(20,50,50,1,1,1);
+                var matEngine = new THREE.MeshPhongMaterial({color:Colors.white, shading:THREE.FlatShading});
+                var engine = new THREE.Mesh(geomEngine, matEngine);
+                engine.position.x = 40;
+                engine.castShadow = true;
+                engine.receiveShadow = true;
+                this.mesh.add(engine);
+                
+                // Create the tail
+                var geomTailPlane = new THREE.BoxGeometry(15,20,5,1,1,1);
+                var matTailPlane = new THREE.MeshPhongMaterial({color:Colors.red, shading:THREE.FlatShading});
+                var tailPlane = new THREE.Mesh(geomTailPlane, matTailPlane);
+                tailPlane.position.set(-35,25,0);
+                tailPlane.castShadow = true;
+                tailPlane.receiveShadow = true;
+                this.mesh.add(tailPlane);
+                
+                // Create the wing
+                var geomSideWing = new THREE.BoxGeometry(40,8,150,1,1,1);
+                var matSideWing = new THREE.MeshPhongMaterial({color:Colors.red, shading:THREE.FlatShading});
+                var sideWing = new THREE.Mesh(geomSideWing, matSideWing);
+                sideWing.castShadow = true;
+                sideWing.receiveShadow = true;
+                this.mesh.add(sideWing);
+                
+                // propeller
+                var geomPropeller = new THREE.BoxGeometry(20,10,10,1,1,1);
+                var matPropeller = new THREE.MeshPhongMaterial({color:Colors.brown, shading:THREE.FlatShading});
+                this.propeller = new THREE.Mesh(geomPropeller, matPropeller);
+                this.propeller.castShadow = true;
+                this.propeller.receiveShadow = true;
+                
+                // blades
+                var geomBlade = new THREE.BoxGeometry(1,100,20,1,1,1);
+                var matBlade = new THREE.MeshPhongMaterial({color:Colors.brownDark, shading:THREE.FlatShading});
+                
+                var blade = new THREE.Mesh(geomBlade, matBlade);
+                blade.position.set(8,0,0);
+                blade.castShadow = true;
+                blade.receiveShadow = true;
+                this.propeller.add(blade);
+                this.propeller.position.set(50,0,0);
+                this.mesh.add(this.propeller);
+            };
+
+            var airplane;
+
+            function createPlane(){ 
+                airplane = new AirPlane();
+                airplane.mesh.scale.set(.25,.25,.25);
+                airplane.mesh.position.y = 100;
+                airplane.mesh.position.x = -100;
+                scene.add(airplane.mesh);
+            }
+
+            function createTree(){
+                var tree = new Tree();
+                
+                tree.mesh.position.x = 350;
+                tree.mesh.position.z = getRandom(-400, 400)
+                
+                var scale = getRandom(5, 9) * 0.1;
+                 
+
+                tree.mesh.name = 'tree' + Date.now();
+                treeNames.push(tree.mesh.name);
+                scene.add(tree.mesh);
+            }
+
+            function getRandom(min, max) {
+                return Math.floor(Math.random() * (max - min + 1)) + min;
+            }
+
+
+            // create enemy planes
+            function createRandomEnemies() {
+                // get random from range [1, 3]
+                var count = Math.floor(Math.random() * 3) + 1;
+                for(var i = 1; i <= count; i++) {
+                    var planeEnemy = new AirPlane();
+                
+                    planeEnemy.mesh.scale.set(.25,.25,.25);
+                    planeEnemy.mesh.position.z = getRandom(-200, 200);
+                    planeEnemy.mesh.position.x = 300;
+                    planeEnemy.mesh.position.y = 100;
+                    planeEnemy.mesh.rotation.y = -3.2;
+                    
+                    planeEnemy.mesh.name = 'enemy' + Date.now();
+                    
+                    scene.add(planeEnemy.mesh);
+                    enemyNames.push(planeEnemy.mesh.name);
+                }
+            }
+            function enemyPositionSetOrRemove() {
+
+                for(var i = 0; i < enemyNames.length; i++) {
+                    var enemyObj = scene.getObjectByName(enemyNames[i]);
+
+                    if (enemyObj.position.x < -350) {
+                        scene.remove(enemyObj);
+                        enemyNames.splice(i, 1);
+                    } else {
+                        enemyObj.position.x -= 1 + speed * 0.01;
+                                          
+                        enemyObj.children[enemyObj.children.length - 1].rotation.x += speed > 600 ? 600 * 0.002 : speed * 0.002;
+                        collisionDetectionAndStop(enemyObj, airplane.mesh);
+                    }
+                }
+                
+                if(enemyNames.length == 0) {
+                    createRandomEnemies();
+                }
+            }
+
+            // check trees position for move or delete
+            function treePositionSetOrRemove() {
+                for(var i = 0; i < treeNames.length; i++) {
+                    var treeObj = scene.getObjectByName(treeNames[i]);
+                    if (treeObj.position.x < -350) {
+                        scene.remove(treeObj);
+                        treeNames.splice(i, 1);
+                    } else {
+                        treeObj.position.x -= 1 + speed * 0.008;
+                    }
+                }
+            }
+
+            function addEventsKeys() {
+                window.addEventListener('keydown', function(e) {
+                    if(e.keyCode == 37) {
+                        direction = 'left';
+                    }
+                    if(e.keyCode == 39) {
+                        direction = 'right';
+                    }
+                }, null);
+                window.addEventListener('keyup', function(e) {
+                    direction = '';
+                }, null);
+            }
+
+            // check collisions
+            function collisionDetectionAndStop(obj1, obj2) {
+                if (!obj1 || !obj2) return null;
+                
+                if (obj1.position.x - 25 < obj2.position.x
+                    && obj1.position.x + 25 > obj2.position.x
+                    && obj1.position.z - 25 < obj2.position.z
+                    && obj1.position.z + 25 > obj2.position.z
+                ){
+                    stoped = true;
+                    startBtn.style.display = 'block';
+                }
+            }
+
+            function startGame() {
+                stoped = false;
+                startBtn.style.display = 'none';
+                speed = 200;
+                resetAll();
+                gameLoop();
+            }
+
+            function gameLoop() {
+
+                if (stoped) {
+                    renderer.render(scene, camera);
+                    return null;
+                }
+
+
+                if (direction == 'left' && airplane.mesh.position.z > -200) airplane.mesh.position.z -= 2 + speed * 0.002;
+                if (direction == 'right' && airplane.mesh.position.z < 200) airplane.mesh.position.z += 2 + speed * 0.002;
+
+                
+                
+                airplane.propeller.rotation.x +=  speed > 600 ? 600 * 0.002 : speed * 0.002;
+                
+                // check timer for timer reset & other actions
+                var timerVal = timer.getElapsedTime();
+                if(timerVal > 0.1) {
+                    // reset timer
+                    timer.start();
+                    createTree();
+                    // speed check and up
+                    speed += speed >= 1500 ? stoped = true : 1;
+                }
+
+                updateStats();
+
+                enemyPositionSetOrRemove();
+                treePositionSetOrRemove();
+
+                // render the scene
+                renderer.render(scene, camera);
+
+                // call the loop function again
+                requestAnimationFrame(gameLoop);
+                
+            }
+
+            // Init Game
+            setTimer();
+            
+            updateStats();
+
+            createScene();
+            createLights();
+
+            createGround();
+            createPlane();
+            createRandomEnemies();
+
+            addEventsKeys();
+
+            gameLoop();
+        </script>        
+    </body>
+</html>
